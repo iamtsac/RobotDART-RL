@@ -1,19 +1,22 @@
-from machin.frame.algorithms import TD3, DDPG
+from machin.frame.algorithms import TD3
 from machin.utils.logging import default_logger as logger
-import torch as t
+import torch
 import torch.nn as nn
 import gym
-from iiwa_env import *
+import json
+import time
+from iiwa_env import Env
 from random import randrange
 import random as rand
+import numpy as np
 
 #observe_dim -> L2 norm of (target_pos - current_pos) & L1 norm of velocities
 observe_dim = 10
 
 action_dim = 7 # number of joints
-action_range = t.Tensor([1.48352986, 1.48352986, 1.74532925, 1.30899694, 2.26892803, 2.35619449, 2.35619449]).to(device="cuda:0")
-max_episodes = 2000
-max_steps = 300
+action_range = torch.Tensor([1.48352986, 1.48352986, 1.74532925, 1.30899694, 2.26892803, 2.35619449, 2.35619449]).to(device="cuda:0")
+max_episodes = 10
+max_steps = 200
 noise_param = (0, 0.2)
 noise_mode = "normal"
 solved_reward = -150
@@ -32,10 +35,10 @@ class Actor(nn.Module):
         self.fc4 = nn.Linear(64, action_dim)
 
     def forward(self, state):
-        a = t.relu(self.fc1(state))
-        a = t.relu(self.fc2(a))
-        a = t.relu(self.fc3(a))
-        a = t.tanh(self.fc4(a)) * 10 
+        a = torch.relu(self.fc1(state))
+        a = torch.relu(self.fc2(a))
+        a = torch.relu(self.fc3(a))
+        a = torch.tanh(self.fc4(a)) * action_range
         return a
 
 
@@ -43,14 +46,16 @@ class Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
         super().__init__()
 
-        self.fc1 = nn.Linear(state_dim + action_dim, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc4 = nn.Linear(64, 1)
+        self.fc1 = nn.Linear(state_dim + action_dim, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.fc3 = nn.Linear(256, 128)
+        self.fc4 = nn.Linear(128, 1)
 
     def forward(self, state, action):
-        state_action = t.cat([state, action], 1)
-        q = t.relu(self.fc1(state_action))
-        q = t.relu(self.fc2(q))
+        state_action = torch.cat([state, action], 1)
+        q = torch.relu(self.fc1(state_action))
+        q = torch.relu(self.fc2(q))
+        q = torch.relu(self.fc3(q))
         q = self.fc4(q)
         return q
 
@@ -63,7 +68,7 @@ if __name__ == "__main__":
     critic_t = Critic(observe_dim, action_dim)
     critic2 = Critic(observe_dim, action_dim)
     critic2_t = Critic(observe_dim, action_dim)
-
+    discount_factor=0.7
     td3 = TD3(
         actor,
         actor_t,
@@ -71,12 +76,13 @@ if __name__ == "__main__":
         critic_t,
         critic2,
         critic2_t,
-        t.optim.Adam,
+        torch.optim.Adam,
         nn.MSELoss(reduction="sum"),
-        # actor_learning_rate=0.0005,
-        # critic_learning_rate=0.003,
-        # discount=0.6,
-        replay_device='cuda',
+        actor_learning_rate=0.001,
+        critic_learning_rate=0.003,
+        discount=discount_factor,
+        update_rate=0.003,
+        #replay_device='cuda',
     )
     actor.to(d)
     actor_t.to(d)
@@ -84,47 +90,66 @@ if __name__ == "__main__":
     critic_t.to(d)
     critic2.to(d)
     critic2_t.to(d)
-    td3.enable_multiprocessing()
+
 
     episode, step, reward_fulfilled = 0, 0, 0
     smoothed_total_reward = 0
+    #New random initial positions
+    init_pos=[]
+    for i in position_limits:
+        init_pos.append(rand.uniform(-i,i))
+        
+    try:
+        data = json.loads(open("iiwa_td3.json", "r").read())
+        get_run_number = int(list(data.keys())[-1].split('_')[-1]) + 1
+    except:
+        data = {}
+        get_run_number = 1
 
-    g = False
+    data[f'run_{get_run_number}'] =  {"initial_positions": init_pos, "execution_time" : None, "solved_reward": solved_reward, "episodes": {}}
+
+    #set Environment instance
+    env = Env()
+    start=time.monotonic()
+
     while episode < max_episodes:
+        #Environment data
         episode += 1
         total_reward = 0
         terminal = False
         step = 0
-        init_pos = []
-        for i in position_limits:
-            init_pos.append(rand.uniform(-i,i))
-        env = Env(graphics=g, initial_positions=np.array(init_pos))
-        state = t.tensor(env.reset(), dtype=t.float32).view(1, observe_dim).to(d)
+
+        #Execution data for plotting
+        actions = []
+        rewards = []
+        discounted_reward = 0
+        expected_reward = []
+        data[f'run_{get_run_number}']['episodes'][episode] = {"total_reward": None,"actions": None, "rewards": None}
+
+        #New variables for reset
+        g=(episode%100)==0
         tmp_observations = []
 
+        state = torch.tensor(env.reset(init_pos, g), dtype=torch.float32).view(1, observe_dim).to(d)
         while not terminal and step <= max_steps:
             step += 1
-            if episode % 200 == 0:
-               # env.render()    # pop-up a GUI of the environment in each 20th episode
-               g = True
-               pass
-            else:
-                g = False
 
-            with t.no_grad():
-                old_state = state.cpu()
-                # if episode < 50:
-                #     action = []
-                #     for limit in action_range.cpu():
-                #         action.append(rand.uniform(-limit,limit))
-                #     action = t.Tensor([action])
-                # else:
-                action = td3.act_with_noise( {"state": old_state}, noise_param=noise_param, mode=noise_mode)
+            with torch.no_grad():
+                old_state = state
+                if episode < 100:
+                    action = []
+                    for limit in action_range.cpu():
+                        action.append(rand.uniform(-limit,limit))
+                    action = torch.Tensor([action])
+                else:
+                    action = td3.act_with_noise(
+                        {"state": old_state}, noise_param=noise_param, mode=noise_mode
+                        )
                
+                #Data for TD3
                 state, reward, terminal, _ = env.step(action.cpu().numpy()[0])
-                state = t.tensor(state, dtype=t.float32).view(1, observe_dim)
+                state = torch.tensor(state, dtype=torch.float32).view(1, observe_dim).to(d)
                 total_reward += reward
-
                 tmp_observations.append(
                     {
                         "state": {"state": old_state},
@@ -134,12 +159,20 @@ if __name__ == "__main__":
                         "terminal": terminal or step == max_steps,
                     }
                 )
-                state = state.to(d)
+                #Data for plotting
+                discounted_reward += (discount_factor ** step) * reward
+                actions.append(action.cpu().numpy()[0].tolist())
+                rewards.append(reward)
 
+        data[f'run_{get_run_number}']['episodes'][episode]["total_reward"] = total_reward
+        data[f'run_{get_run_number}']['episodes'][episode]["actions"] = actions
+        data[f'run_{get_run_number}']['episodes'][episode]["rewards"] = rewards
+
+        expected_reward.append(discounted_reward/max_steps)
         td3.store_episode(tmp_observations)
 
         # update, update more if episode is longer, else less
-        if episode > 10:
+        if episode > 100:
             for _ in range(step):
                 td3.update()
 
@@ -147,10 +180,14 @@ if __name__ == "__main__":
         smoothed_total_reward = smoothed_total_reward * 0.9 + total_reward * 0.1
         logger.info(f"Episode {episode} total reward={smoothed_total_reward:.2f}")
 
-        # if smoothed_total_reward > solved_reward:
-        #     reward_fulfilled += 1
-        #     if reward_fulfilled >= solved_repeat:
-        #         logger.info("Environment solved!")
-        #         exit(0)
-        # else:
-        #     reward_fulfilled = 0
+        #Check if environment is solved
+        if smoothed_total_reward > solved_reward:
+            reward_fulfilled += 1
+            if reward_fulfilled >= solved_repeat:
+                logger.info("Environment solved!")
+                data[f'run_{get_run_number}']['execution_time'] = time.monotonic() - start
+                s = json.dumps(data)
+                open("iiwa_td3.json","w").write(s)
+                exit(0)
+        else:
+            reward_fulfilled = 0

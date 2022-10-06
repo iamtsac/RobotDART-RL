@@ -1,4 +1,5 @@
 import copy
+import json
 import re
 from time import sleep
 import RobotDART as rd
@@ -14,92 +15,95 @@ class Env():
     def __init__ (
             self,
             time_step = 0.005,
-            robot = 'iiwa',
-            initial_positions = None,
-            graphics = False
+            initial_positions=None,
+            graphics=False
         ):
+        #Set simulation variables
         self.time_step = time_step
-        self.robot = rd.Iiwa()
-        self.initial_positions = initial_positions
-        self._sum_error = 0
-        self.graphics = graphics
         self.eef_link_name = "iiwa_link_ee"
         self.simu = rd.RobotDARTSimu(self.time_step)
-        self.position_limits = [2.96705973, 2.0943951,  2.96705973, 2.0943951,  2.96705973, 2.0943951, 3.05432619]
-        self.action_range = np.array([1.48352986, 1.48352986, 1.74532925, 1.30899694, 2.26892803, 2.35619449, 2.35619449])
+        self.simu.add_checkerboard_floor()
+        self.robot = rd.Iiwa()
+        self.robot_ghost=self.robot.clone_ghost()
 
-        if self.graphics:
-            config = rd.gui.GraphicsConfiguration()
-            config.shadowed = False
-            config.transparent_shadows = False
-            graphics = rd.gui.Graphics(config)
-            #graphics.enable_shadows(confgi)
-            self.simu.set_graphics(graphics)
-            graphics.look_at([3., 1., 2.], [0., 0., 0.])
+        if initial_positions is not None:
+            self.robot.set_positions(initial_positions)
 
         
-        # self.robot.fix_to_world()
-        self.robot.set_actuator_types("servo")
-        self.robot_ghost = self.robot.clone_ghost()
-
-        # set initial joint positions
+        # set target joint positions
         self.target_positions = copy.copy(self.robot.positions())
         self.target_positions[0] = -2.
         self.target_positions[3] = -np.pi / 2.0
         self.target_positions[5] = np.pi / 2.0
-        self.robot.set_positions(self.target_positions)
-
-        # get end-effector pose
-        eef_link_name = "iiwa_link_ee"
-        self.tf_desired = self.robot.body_pose(eef_link_name)
-
-        # set robot to random positions
-        self.robot.set_positions(self.initial_positions)
-
-        self.simu.add_robot(self.robot)
         self.robot_ghost.set_positions(self.target_positions)
+        self.tf_desired = self.robot.body_pose(self.eef_link_name)
+
+        #Add robots to simulation
+        self.simu.add_robot(self.robot)
         self.simu.add_robot(self.robot_ghost)
-        self.simu.add_checkerboard_floor()
 
+        #Find and save target position oin world frame  
+        self.tf_desired = self.robot.body_pose(self.eef_link_name)
 
-    
-    def get_graphics(self):
-        return self.graphics
+        #Set graphics if secected
+        if graphics:
+            graphics = rd.gui.Graphics()
+            self.simu.set_graphics(graphics)
+
 
     def step(self, commands):
         terminal = False
 
-        # commands  = np.clip(commands, -1*self.action_range, self.action_range) 
-        for _ in range(5):
-            self.robot.set_commands(commands)
-            self.simu.step_world(False, False)
-        # Get each joints distance.
+        self.robot.set_commands(commands)
+        for _ in range(10):
+            self.simu.step_world(False)
+            distance = np.abs(np.subtract(self.robot.positions(), self.robot_ghost.positions()))
+            reward = 0
+            for d in distance:
+                reward += np.sqrt(d**2)
 
-        distance = np.abs(np.subtract(self.robot.positions(), self.robot_ghost.positions()))
-        eef_distance = np.linalg.norm((self.robot.body_pose(self.eef_link_name).translation() - self.robot_ghost.body_pose(self.eef_link_name).translation()))
-
-        if (all( i < 0.02 for i in distance)):
-            print("DONE")
-            terminal = True
-
-        reward = 0
-        reward += sum(np.sqrt(distance**2))
-        # reward = 0.7 * reward + .3 * eef_distance
-
-        return np.r_[self.robot.positions()], -reward, terminal, {}
+        return np.r_[self.robot.positions(), self.robot.body_pose(self.eef_link_name).translation()], -reward, False, {}
 
 
-    def reset(self):
+    def reset(self, init_pos=None, graphics=False):
+        #Create new simulation
+        self.simu = rd.RobotDARTSimu(self.time_step)
+        self.simu.add_checkerboard_floor()
+
+        #Add robot 
+        self.robot = rd.Iiwa()
         self.robot.reset_commands()
-        self.robot.set_positions(self.initial_positions)
-        # self.target_positions[0] = -1.95
-        # self.target_positions[3] = -np.pi / 2.1
-        # self.target_positions[5] = np.pi / 2.0
-        # self.robot.set_positions(self.target_positions)
-        for _ in range(5):
-            self.simu.step_world(True, False)
-        return np.r_[self.robot.positions()]
+        self.robot.set_positions(init_pos)
+        self.robot.set_actuator_types("servo")
+        self.simu.add_robot(self.robot)
 
-# env = Env(graphics=True)
-# while(1):
-#     env.reset()
+        #Add ghost robot
+        self.robot_ghost = self.robot.clone_ghost()
+        self.robot_ghost.set_positions(self.target_positions)
+        self.simu.add_robot(self.robot_ghost)
+    
+
+        if graphics:
+            graphics = rd.gui.Graphics()
+            self.simu.set_graphics(graphics)
+        
+        for _ in range(10):
+            self.simu.step_world()
+
+        return np.r_[self.robot.positions(), self.robot.body_pose(self.eef_link_name).translation()]
+
+    def confirm_env(self, run=1, json_file_path='iiwa_td3.json'):
+        while True:
+            try:
+                data = json.loads(open(json_file_path, "r").read())
+                episode = input(f'Pick episode to run: From {len(data["run_"+str(run)]["episodes"].keys())} available episodes ->  ')
+                initial_positions = data[f'run_{run}']['initial_positions']
+                self.reset(initial_positions, True)
+                for i in data[f'run_{run}']['episodes'][str(episode)]['actions']:
+                    self.step(i)
+            except KeyboardInterrupt:
+                break
+        
+    
+if __name__ == '__main__':
+    Env().confirm_env()
