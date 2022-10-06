@@ -81,8 +81,7 @@ if __name__ == "__main__":
         actor_learning_rate=0.001,
         critic_learning_rate=0.003,
         discount=discount_factor,
-        update_rate=0.003,
-        #replay_device='cuda',
+        replay_device='cuda',
     )
     actor.to(d)
     actor_t.to(d)
