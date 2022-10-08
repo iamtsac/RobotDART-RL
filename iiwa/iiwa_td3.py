@@ -15,8 +15,8 @@ observe_dim = 10
 
 action_dim = 7 # number of joints
 action_range = torch.Tensor([1.48352986, 1.48352986, 1.74532925, 1.30899694, 2.26892803, 2.35619449, 2.35619449]).to(device="cuda:0")
-max_episodes = 10
-max_steps = 200
+max_episodes = 1500
+max_steps = 400
 noise_param = (0, 0.2)
 noise_mode = "normal"
 solved_reward = -150
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     critic_t = Critic(observe_dim, action_dim)
     critic2 = Critic(observe_dim, action_dim)
     critic2_t = Critic(observe_dim, action_dim)
-    discount_factor=0.7
+    discount_factor=0.6
     td3 = TD3(
         actor,
         actor_t,
@@ -78,7 +78,7 @@ if __name__ == "__main__":
         critic2_t,
         torch.optim.Adam,
         nn.MSELoss(reduction="sum"),
-        actor_learning_rate=0.001,
+        # actor_learning_rate=0.001,
         critic_learning_rate=0.003,
         discount=discount_factor,
         replay_device='cuda',
@@ -111,6 +111,9 @@ if __name__ == "__main__":
     env = Env()
     start=time.monotonic()
 
+    prev_reward = 0
+    solved_flag = False
+
     while episode < max_episodes:
         #Environment data
         episode += 1
@@ -123,7 +126,6 @@ if __name__ == "__main__":
         rewards = []
         discounted_reward = 0
         expected_reward = []
-        data[f'run_{get_run_number}']['episodes'][episode] = {"total_reward": None,"actions": None, "rewards": None}
 
         #New variables for reset
         g=(episode%100)==0
@@ -163,9 +165,6 @@ if __name__ == "__main__":
                 actions.append(action.cpu().numpy()[0].tolist())
                 rewards.append(reward)
 
-        data[f'run_{get_run_number}']['episodes'][episode]["total_reward"] = total_reward
-        data[f'run_{get_run_number}']['episodes'][episode]["actions"] = actions
-        data[f'run_{get_run_number}']['episodes'][episode]["rewards"] = rewards
 
         expected_reward.append(discounted_reward/max_steps)
         td3.store_episode(tmp_observations)
@@ -179,14 +178,20 @@ if __name__ == "__main__":
         smoothed_total_reward = smoothed_total_reward * 0.9 + total_reward * 0.1
         logger.info(f"Episode {episode} total reward={smoothed_total_reward:.2f}")
 
-        #Check if environment is solved
-        if smoothed_total_reward > solved_reward:
+        if (np.floor(smoothed_total_reward/10) == np.floor(prev_reward/10)) and not solved_flag:
             reward_fulfilled += 1
+            data[f'run_{get_run_number}']['episodes'][episode] = {"total_reward": None,"actions": None, "rewards": None}
+            data[f'run_{get_run_number}']['episodes'][episode]["total_reward"] = total_reward
+            data[f'run_{get_run_number}']['episodes'][episode]["actions"] = actions
+            data[f'run_{get_run_number}']['episodes'][episode]["rewards"] = rewards
             if reward_fulfilled >= solved_repeat:
                 logger.info("Environment solved!")
                 data[f'run_{get_run_number}']['execution_time'] = time.monotonic() - start
-                s = json.dumps(data)
-                open("iiwa_td3.json","w").write(s)
-                exit(0)
+                data[f'run_{get_run_number}']['solved_reward'] = np.floor(smoothed_total_reward/10) * 10 
+                solved_flag = True
         else:
             reward_fulfilled = 0
+            prev_reward = smoothed_total_reward
+
+    s = json.dumps(data)
+    open("iiwa_td3.json","w").write(s)

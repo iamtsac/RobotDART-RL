@@ -14,7 +14,7 @@ class Env():
 
     def __init__ (
             self,
-            time_step = 0.005,
+            time_step = 0.004,
             initial_positions=None,
             graphics=False
         ):
@@ -55,7 +55,7 @@ class Env():
         terminal = False
 
         self.robot.set_commands(commands)
-        for _ in range(10):
+        for _ in range(5):
             self.simu.step_world(False)
             distance = np.abs(np.subtract(self.robot.positions(), self.robot_ghost.positions()))
             reward = 0
@@ -86,8 +86,9 @@ class Env():
         if graphics:
             graphics = rd.gui.Graphics()
             self.simu.set_graphics(graphics)
+            graphics.look_at([3., 1., 2.], [0., 0., 0.])
         
-        for _ in range(10):
+        for _ in range(5):
             self.simu.step_world()
 
         return np.r_[self.robot.positions(), self.robot.body_pose(self.eef_link_name).translation()]
