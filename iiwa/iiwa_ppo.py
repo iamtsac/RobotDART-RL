@@ -111,7 +111,7 @@ if __name__ == "__main__":
         init_pos.append(np.random.uniform(-i,i))
 
     prev_reward = 0
-    solved_flag = False
+    last_actions = []
 
     while episode < max_episodes:
         #Environment variables
@@ -159,6 +159,8 @@ if __name__ == "__main__":
                 actions.append(action.cpu().numpy()[0].tolist())
                 rewards.append(reward)
 
+        data[f'run_{get_run_number}']['episodes'][episode]["total_reward"] = total_reward
+        data[f'run_{get_run_number}']['episodes'][episode]["rewards"] = rewards
 
         expected_reward.append(discounted_reward/max_steps)
         ppo.store_episode(tmp_observations)
@@ -170,19 +172,20 @@ if __name__ == "__main__":
         logger.info(f"Episode {episode} total reward={smoothed_total_reward:.2f}")
 
         #Check if environment is solved
-        if (np.floor(smoothed_total_reward/10) == np.floor(prev_reward/10)) and not solved_flag:
+        if (np.floor(smoothed_total_reward/10) == np.floor(prev_reward/10)):
             reward_fulfilled += 1
-            data[f'run_{get_run_number}']['episodes'][episode]["total_reward"] = total_reward
-            data[f'run_{get_run_number}']['episodes'][episode]["actions"] = actions
-            data[f'run_{get_run_number}']['episodes'][episode]["rewards"] = rewards
+            last_actions.append(actions)
             if reward_fulfilled >= solved_repeat:
                 logger.info("Environment solved!")
+                for i in range(solved_repeat):
+                    data[f'run_{get_run_number}']['episodes'][episode - solved_repeat + i + 1]["actions"] = last_actions[i]
                 data[f'run_{get_run_number}']['execution_time'] = time.monotonic() - start
                 data[f'run_{get_run_number}']['solved_reward'] = np.floor(smoothed_total_reward/10) * 10 
-                solved_flag = True
+                s = json.dumps(data)
+                open("iiwa_ppo.json","w").write(s)
+                exit(0)
         else:
             reward_fulfilled = 0
             prev_reward = smoothed_total_reward
+            last_actions = []
 
-    s = json.dumps(data)
-    open("iiwa_ppo.json","w").write(s)
