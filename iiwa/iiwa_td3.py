@@ -14,7 +14,7 @@ import numpy as np
 observe_dim = 10
 
 action_dim = 7 # number of joints
-action_range = torch.Tensor([1.48352986, 1.48352986, 1.74532925, 1.30899694, 2.26892803, 2.35619449, 2.35619449]).to(device="cuda:0")
+action_range = torch.Tensor([1.48352986, 1.48352986, 1.74532925, 1.30899694, 2.26892803, 2.35619449, 2.35619449])#.to(device="cuda:0")
 max_episodes = 1500
 max_steps = 400
 noise_param = (0, 0.2)
@@ -81,7 +81,7 @@ if __name__ == "__main__":
         # actor_learning_rate=0.001,
         critic_learning_rate=0.003,
         discount=discount_factor,
-        replay_device='cuda',
+        #replay_device='cuda',
     )
     actor.to(d)
     actor_t.to(d)
@@ -139,7 +139,7 @@ if __name__ == "__main__":
                 old_state = state
                 if episode < 100:
                     action = []
-                    for limit in action_range.cpu():
+                    for limit in action_range:
                         action.append(rand.uniform(-limit,limit))
                     action = torch.Tensor([action])
                 else:
@@ -148,7 +148,7 @@ if __name__ == "__main__":
                         )
                
                 #Data for TD3
-                state, reward, terminal, _ = env.step(action.cpu().numpy()[0])
+                state, reward, terminal, _ = env.step(action.numpy()[0])
                 state = torch.tensor(state, dtype=torch.float32).view(1, observe_dim).to(d)
                 total_reward += reward
                 tmp_observations.append(
@@ -162,7 +162,7 @@ if __name__ == "__main__":
                 )
                 #Data for plotting
                 discounted_reward += (discount_factor ** step) * reward
-                actions.append(action.cpu().numpy()[0].tolist())
+                actions.append(action.numpy()[0].tolist())
                 rewards.append(reward)
 
 
