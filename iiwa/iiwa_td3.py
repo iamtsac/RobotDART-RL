@@ -14,13 +14,8 @@ import numpy as np
 observe_dim = 10
 
 action_dim = 7 # number of joints
-<<<<<<< HEAD
-action_range = torch.Tensor([1.48352986, 1.48352986, 1.74532925, 1.30899694, 2.26892803, 2.35619449, 2.35619449]).to(device="cuda:0")
+action_range = torch.Tensor([1.48352986, 1.48352986, 1.74532925, 1.30899694, 2.26892803, 2.35619449, 2.35619449])
 max_episodes = 5000
-=======
-action_range = torch.Tensor([1.48352986, 1.48352986, 1.74532925, 1.30899694, 2.26892803, 2.35619449, 2.35619449])#.to(device="cuda:0")
-max_episodes = 1500
->>>>>>> 3c46e1458f11e8bf0aee6be214a13b1c586796fd
 max_steps = 400
 noise_param = (0, 0.2)
 noise_mode = "normal"
@@ -66,7 +61,7 @@ class Critic(nn.Module):
 
 if __name__ == "__main__":
 
-    d = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    dev = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     actor = Actor(observe_dim, action_dim, action_range)
     actor_t = Actor(observe_dim, action_dim, action_range)
     critic = Critic(observe_dim, action_dim)
@@ -86,14 +81,15 @@ if __name__ == "__main__":
         actor_learning_rate=0.001,
         critic_learning_rate=0.003,
         discount=discount_factor,
-        #replay_device='cuda',
+        replay_device=dev,
     )
-    actor.to(d)
-    actor_t.to(d)
-    critic.to(d)
-    critic_t.to(d)
-    critic2.to(d)
-    critic2_t.to(d)
+    actor.to(dev)
+    actor_t.to(dev)
+    critic.to(dev)
+    critic_t.to(dev)
+    critic2.to(dev)
+    critic2_t.to(dev)
+    action_range.to(dev)
 
 
     episode, step, reward_fulfilled = 0, 0, 0
@@ -129,24 +125,23 @@ if __name__ == "__main__":
         #Execution data for plotting
         actions = []
         rewards = []
-        discounted_reward = 0
-        expected_reward = []
         data[f'run_{get_run_number}']['episodes'][episode] = {"total_reward": None,"actions": None, "rewards": None}
 
         #New variables for reset
-        g=(episode%200)==0
+        render = not (episode % 200)
         tmp_observations = []
 
-        state = torch.tensor(env.reset(init_pos, g), dtype=torch.float32).view(1, observe_dim).to(d)
+        state = torch.tensor(env.reset(init_pos, render=render), dtype=torch.float32).view(1, observe_dim).to(dev)
 
         while not terminal and step <= max_steps:
             step += 1
 
             with torch.no_grad():
                 old_state = state
+                # random action to explore the enviroment
                 if episode < 100:
                     action = []
-                    for limit in action_range:
+                    for limit in action_range.cpu():
                         action.append(rand.uniform(-limit,limit))
                     action = torch.Tensor([action])
                 else:
@@ -155,8 +150,8 @@ if __name__ == "__main__":
                         )
                
                 #Data for TD3
-                state, reward, terminal, _ = env.step(action.numpy()[0])
-                state = torch.tensor(state, dtype=torch.float32).view(1, observe_dim).to(d)
+                state, reward, terminal, _ = env.step(action.cpu().numpy()[0])
+                state = torch.tensor(state, dtype=torch.float32).view(1, observe_dim).to(dev)
                 total_reward += reward
                 tmp_observations.append(
                     {
@@ -168,14 +163,12 @@ if __name__ == "__main__":
                     }
                 )
                 #Data for plotting
-                discounted_reward += (discount_factor ** step) * reward
-                actions.append(action.numpy()[0].tolist())
+                actions.append(action.cpu().numpy()[0].tolist())
                 rewards.append(reward)
 
 
         data[f'run_{get_run_number}']['episodes'][episode]["total_reward"] = total_reward
         data[f'run_{get_run_number}']['episodes'][episode]["rewards"] = rewards
-        expected_reward.append(discounted_reward/max_steps)
         td3.store_episode(tmp_observations)
 
         # update, update more if episode is longer, else less
@@ -191,6 +184,7 @@ if __name__ == "__main__":
             reward_fulfilled += 1
             last_actions.append(actions)
             if reward_fulfilled >= solved_repeat:
+                # Store last actions
                 for i in range(solved_repeat):
                     data[f'run_{get_run_number}']['episodes'][episode - solved_repeat + i + 1]["actions"] = last_actions[i]
                 logger.info("Environment solved!")

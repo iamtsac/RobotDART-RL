@@ -1,5 +1,5 @@
-from statistics import quantiles
 import sys
+import os
 import json
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,21 +9,23 @@ PENDULUM_TD3_DISCOUNT = 0.99
 IIWA_PPO_DISCOUNT = 0.4
 IIWA_TD3_DISCOUNT = 0.7
 
+file_path = os.getcwd()
+
 
 """
     Pendulum Plots
 """
 #Expected reward plotting for Pendulum PPO 
 expected_reward = []
-data_pendulum_ppo = json.loads(open('pendulum/pendulum_ppo.json', "r").read())
+data_pendulum_ppo = json.loads(open(f'{file_path}/pendulum/pendulum_ppo.json', "r").read())
 max_len = 0
 for run in range(1,6):
     tmp_expected_reward = []
     for k, v in data_pendulum_ppo[f'run_{run}']['episodes'].items():
-        discounted = 0
+        cumulative = 0
         for t, reward in enumerate(v['rewards']):
-            discounted += (PENDULUM_PPO_DISCOUNT ** t) * reward
-        tmp_expected_reward.append(discounted/len(v['rewards']))
+            cumulative += reward # For expected discounted return -> (PENDULUM_PPO_DISCOUNT ** t) * reward
+        tmp_expected_reward.append(cumulative/len(v['rewards']))
     max_len = max(max_len, len(tmp_expected_reward))
     expected_reward.append(np.asarray(tmp_expected_reward, dtype=np.float32))
 
@@ -39,15 +41,15 @@ plt.show()
 
 #Expected reward plotting for Pendulum TD3 
 expected_reward = []
-data_pendulum_td3= json.loads(open('pendulum/pendulum_td3.json', "r").read())
+data_pendulum_td3= json.loads(open(f'{file_path}/pendulum/pendulum_td3.json', "r").read())
 max_len = 0
 for run in range(1,6):
     tmp_expected_reward = []
     for k, v in data_pendulum_td3[f'run_{run}']['episodes'].items():
-        discounted = 0
+        cumulative = 0
         for t, reward in enumerate(v['rewards']):
-            discounted += (PENDULUM_TD3_DISCOUNT ** t) * reward
-        tmp_expected_reward.append(discounted/len(v['rewards']))
+            cumulative += reward # For expected discounted return -> (PENDULUM_TD3_DISCOUNT ** t) * reward
+        tmp_expected_reward.append(cumulative/len(v['rewards']))
     max_len = max(max_len, len(tmp_expected_reward))
     expected_reward.append(np.asarray(tmp_expected_reward, dtype=np.float32))
 
@@ -82,15 +84,15 @@ plt.show()
 """
 #Expected reward plotting for Iiwa PPO 
 expected_reward = []
-data_iiwa_ppo = json.loads(open('iiwa_ppo.json', "r").read())
+data_iiwa_ppo = json.loads(open(f'{file_path}/iiwa/iiwa_ppo.json', "r").read())
 max_len = 0
 for run in range(1,6):
     tmp_expected_reward = []
     for k, v in data_iiwa_ppo[f'run_{run}']['episodes'].items():
-        discounted = 0
+        cumulative = 0
         for t, reward in enumerate(v['rewards']):
-            discounted += (IIWA_PPO_DISCOUNT ** t) * reward
-        tmp_expected_reward.append(discounted/len(v['rewards']))
+            cumulative += reward # For expected discounted return -> (IIWA_PPO_DISCOUNT ** t) * reward
+        tmp_expected_reward.append(cumulative/len(v['rewards']))
     max_len = max(max_len, len(tmp_expected_reward))
     expected_reward.append(np.asarray(tmp_expected_reward, dtype=np.float32))
 
@@ -106,15 +108,15 @@ plt.show()
 
 #Expected reward plotting for Iiwa TD3 
 expected_reward = []
-data_iiwa_td3 = json.loads(open('iiwa/iiwa_td3.json', "r").read())
+data_iiwa_td3 = json.loads(open(f'{file_path}/iiwa/iiwa_td3.json', "r").read())
 max_len = 0
 for run in range(1,6):
     tmp_expected_reward = []
     for k, v in data_iiwa_td3[f'run_{run}']['episodes'].items():
-        discounted = 0
+        cumulative = 0
         for t, reward in enumerate(v['rewards']):
-            discounted += (IIWA_TD3_DISCOUNT ** t) * reward
-        tmp_expected_reward.append(discounted/len(v['rewards']))
+            cumulative += reward # For expected discounted return -> (IIWA_TD3_DISCOUNT ** t) * reward
+        tmp_expected_reward.append(cumulative/len(v['rewards']))
     max_len = max(max_len, len(tmp_expected_reward))
     expected_reward.append(np.asarray(tmp_expected_reward, dtype=np.float32))
 

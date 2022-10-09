@@ -1,6 +1,7 @@
+import os
 import copy
 import json
-import re
+from typing import Union
 from time import sleep
 import RobotDART as rd
 import dartpy 
@@ -12,12 +13,7 @@ from random import randrange, random
 
 class Env():
 
-    def __init__ (
-            self,
-            time_step = 0.004,
-            initial_positions=None,
-            graphics=False
-        ):
+    def __init__ (self, time_step: float = 0.004):
         #Set simulation variables
         self.time_step = time_step
         self.eef_link_name = "iiwa_link_ee"
@@ -26,10 +22,6 @@ class Env():
         self.robot = rd.Iiwa()
         self.robot_ghost=self.robot.clone_ghost()
 
-        if initial_positions is not None:
-            self.robot.set_positions(initial_positions)
-
-        
         # set target joint positions
         self.target_positions = copy.copy(self.robot.positions())
         self.target_positions[0] = -2.
@@ -45,16 +37,14 @@ class Env():
         #Find and save target position oin world frame  
         self.tf_desired = self.robot.body_pose(self.eef_link_name)
 
-        #Set graphics if secected
-        if graphics:
-            graphics = rd.gui.Graphics()
-            self.simu.set_graphics(graphics)
 
 
-    def step(self, commands):
+    def step(self, commands: Union[list, np.ndarray]) -> np.array:
         terminal = False
 
         self.robot.set_commands(commands)
+
+        # Run 5 step with same action
         for _ in range(5):
             self.simu.step_world(False)
             distance = np.abs(np.subtract(self.robot.positions(), self.robot_ghost.positions()))
@@ -65,7 +55,12 @@ class Env():
         return np.r_[self.robot.positions(), self.robot.body_pose(self.eef_link_name).translation()], -reward, False, {}
 
 
-    def reset(self, init_pos=None, graphics=False):
+    def reset(
+        self, 
+        initial_positions: Union[list, np.ndarray],
+        render: bool = False
+    ) -> np.array:
+
         #Create new simulation
         self.simu = rd.RobotDARTSimu(self.time_step)
         self.simu.add_checkerboard_floor()
@@ -73,7 +68,7 @@ class Env():
         #Add robot 
         self.robot = rd.Iiwa()
         self.robot.reset_commands()
-        self.robot.set_positions(init_pos)
+        self.robot.set_positions(initial_positions)
         self.robot.set_actuator_types("servo")
         self.simu.add_robot(self.robot)
 
@@ -83,7 +78,8 @@ class Env():
         self.simu.add_robot(self.robot_ghost)
     
 
-        if graphics:
+        #Set graphics if secected
+        if render:
             graphics = rd.gui.Graphics()
             self.simu.set_graphics(graphics)
             graphics.look_at([3., 1., 2.], [0., 0., 0.])
@@ -93,22 +89,44 @@ class Env():
 
         return np.r_[self.robot.positions(), self.robot.body_pose(self.eef_link_name).translation()]
 
-    def confirm_env(self, run=1, json_file_path='iiwa_ppo.json'):
+    def confirm_env(self, run=3, json_file_path='iiwa_ppo.json'):
+        file_path = os.getcwd()
         while True:
             try:
-                reward=0
+                algorith_type = int(input("[1] -> For PPO \n[2] -> For TD3\nSelection: "))
+                if algorith_type == 1:
+                    json_file_path = f'{file_path}/iiwa_ppo.json'
+                else:
+                    json_file_path = f'{file_path}/iiwa_td3.json'
+
                 data = json.loads(open(json_file_path, "r").read())
-                episode = input(f'Pick episode to run: From {len(data["run_"+str(run)]["episodes"].keys())} available episodes ->  ')
-                initial_positions = data[f'run_{run}']['initial_positions']
-                print(initial_positions)
-                self.reset(initial_positions, True)
-                for i in data[f'run_{run}']['episodes'][str(episode)]['actions']:
-                    _,re,_,_=self.step([i])
-                    reward+=re
-                print(reward)
-                print(data[f'run_{run}']['episodes'][str(episode)]['total_reward'])
             except KeyboardInterrupt:
+                print("\n")
                 break
+
+            while True:
+                try:
+                    runs_num = len(data.keys())
+                    run = input(f"Select run: Available runs {runs_num}: ")
+                except KeyboardInterrupt:
+                    print("\n")
+                    break
+                while True:
+                    try:
+                        action_counter = 0
+                        for k, v in reversed(data[f'run_{run}']['episodes'].items()):
+                            if v['actions'] is not None:
+                                action_counter += 1
+                            else:
+                                break
+                        episode = input(f'Pick episode to run: From {action_counter} available episodes ->  ')
+                        initial_positions = data[f'run_{run}']['initial_positions']
+                        self.reset(initial_positions, True)
+                        for action in data[f'run_{run}']['episodes'][str(len(data["run_"+str(run)]["episodes"].keys()) - action_counter + int(episode) + 1)]['actions']:
+                            self.step(action)
+                    except KeyboardInterrupt:
+                        print("\n")
+                        break
         
     
 if __name__ == '__main__':

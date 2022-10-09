@@ -12,15 +12,13 @@ import random as rand
 # configurations
 observe_dim = 10
 action_dim = 7
-max_episodes = 1500
+max_episodes = 2500
 max_steps = 400
 noise_param = (0, 0.2)
 noise_mode = "normal"
 solved_reward = -100
 solved_repeat = 10
 position_limits = [2.96705973, 2.0943951,  2.96705973, 2.0943951,  2.96705973, 2.0943951, 3.05432619]
-action_range = torch.Tensor([1.48352986, 1.48352986, 1.74532925, 1.30899694, 2.26892803, 2.35619449, 2.35619449])
-
 
 # model definition
 class Actor(torch.nn.Module):
@@ -67,7 +65,6 @@ if __name__ == "__main__":
     critic = Critic(observe_dim)
     actor.to(dev)
     critic.to(dev)
-    action_range.to(dev)
     discount_factor = 0.4
     ppo = PPO(
         actor, 
@@ -76,11 +73,6 @@ if __name__ == "__main__":
         torch.nn.MSELoss(reduction="sum"),
         discount = discount_factor,
         replay_device=dev,
-        # batch_size=64,
-        # normalize_advantage=False,
-        # critic_learning_rate=0.002,
-        # critic_learning_rate=0.002,
-        
         )
 
  
@@ -123,16 +115,14 @@ if __name__ == "__main__":
         #Execution data for plotting
         actions = []
         rewards = []
-        discounted_reward=0
-        expected_reward = []
         data[f'run_{get_run_number}']['episodes'][episode] = {"total_reward": None,"actions": None, "rewards": None}
 
         #New variables for reset 
-        g = (episode%100)==0
+        render = not (episode % 100)
         tmp_observations = []
 
         #Reset environment
-        state = torch.tensor(env.reset(init_pos=init_pos,graphics=g), dtype=torch.float32).view(1, observe_dim).to(dev)
+        state = torch.tensor(env.reset(initial_positions=init_pos, render=render), dtype=torch.float32).view(1, observe_dim).to(dev)
 
         while not terminal and step <= max_steps:
             step += 1
@@ -156,14 +146,12 @@ if __name__ == "__main__":
                 )
 
                 #Data for plotting
-                discounted_reward += (discount_factor ** step) * reward
                 actions.append(action.cpu().numpy()[0].tolist())
                 rewards.append(reward)
 
         data[f'run_{get_run_number}']['episodes'][episode]["total_reward"] = total_reward
         data[f'run_{get_run_number}']['episodes'][episode]["rewards"] = rewards
 
-        expected_reward.append(discounted_reward/max_steps)
         ppo.store_episode(tmp_observations)
         ppo.update(concatenate_samples=True)
     
@@ -178,6 +166,7 @@ if __name__ == "__main__":
             last_actions.append(actions)
             if reward_fulfilled >= solved_repeat:
                 logger.info("Environment solved!")
+                # Store last actions
                 for i in range(solved_repeat):
                     data[f'run_{get_run_number}']['episodes'][episode - solved_repeat + i + 1]["actions"] = last_actions[i]
                 data[f'run_{get_run_number}']['execution_time'] = time.monotonic() - start
