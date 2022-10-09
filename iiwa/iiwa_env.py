@@ -34,7 +34,7 @@ class Env():
         self.simu.add_robot(self.robot)
         self.simu.add_robot(self.robot_ghost)
 
-        #Find and save target position oin world frame  
+        #Find and save target position in world frame  
         self.tf_desired = self.robot.body_pose(self.eef_link_name)
 
 
@@ -89,7 +89,7 @@ class Env():
 
         return np.r_[self.robot.positions(), self.robot.body_pose(self.eef_link_name).translation()]
 
-    def confirm_env(self, run=3, json_file_path='iiwa_ppo.json'):
+    def confirm_env(self, run=3, json_file_path='iiwa_td3.json'):
         file_path = os.getcwd()
         while True:
             try:

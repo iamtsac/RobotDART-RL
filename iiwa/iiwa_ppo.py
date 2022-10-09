@@ -131,7 +131,6 @@ if __name__ == "__main__":
                 #Data for PPO
                 old_state = state
                 action = ppo.act({"state": old_state})[0].view(1,7)
-                print(action)
                 state, reward, terminal, _ = env.step(action.cpu().numpy()[0])
                 state = torch.tensor(state, dtype=torch.float32).view(1, observe_dim)
                 total_reward += reward
