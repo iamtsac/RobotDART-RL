@@ -15,7 +15,7 @@ observe_dim = 10
 
 action_dim = 7 # number of joints
 action_range = torch.Tensor([1.48352986, 1.48352986, 1.74532925, 1.30899694, 2.26892803, 2.35619449, 2.35619449]).to(device="cuda:0")
-max_episodes = 1500
+max_episodes = 5000
 max_steps = 400
 noise_param = (0, 0.2)
 noise_mode = "normal"
@@ -29,10 +29,10 @@ class Actor(nn.Module):
     def __init__(self, state_dim, action_dim, action_range):
         super().__init__()
 
-        self.fc1 = nn.Linear(state_dim, 256)
-        self.fc2 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, 64)
-        self.fc4 = nn.Linear(64, action_dim)
+        self.fc1 = nn.Linear(state_dim, 128)
+        self.fc2 = nn.Linear(128, 64)
+        self.fc3 = nn.Linear(64, 32)
+        self.fc4 = nn.Linear(32, action_dim)
 
     def forward(self, state):
         a = torch.relu(self.fc1(state))
@@ -46,10 +46,10 @@ class Critic(nn.Module):
     def __init__(self, state_dim, action_dim):
         super().__init__()
 
-        self.fc1 = nn.Linear(state_dim + action_dim, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc3 = nn.Linear(256, 128)
-        self.fc4 = nn.Linear(128, 1)
+        self.fc1 = nn.Linear(state_dim + action_dim, 256)
+        self.fc2 = nn.Linear(256, 128)
+        self.fc3 = nn.Linear(128, 64)
+        self.fc4 = nn.Linear(64, 1)
 
     def forward(self, state, action):
         state_action = torch.cat([state, action], 1)
@@ -68,7 +68,7 @@ if __name__ == "__main__":
     critic_t = Critic(observe_dim, action_dim)
     critic2 = Critic(observe_dim, action_dim)
     critic2_t = Critic(observe_dim, action_dim)
-    discount_factor=0.6
+    discount_factor=0.7
     td3 = TD3(
         actor,
         actor_t,
@@ -78,7 +78,7 @@ if __name__ == "__main__":
         critic2_t,
         torch.optim.Adam,
         nn.MSELoss(reduction="sum"),
-        # actor_learning_rate=0.001,
+        actor_learning_rate=0.001,
         critic_learning_rate=0.003,
         discount=discount_factor,
         replay_device='cuda',
@@ -112,7 +112,7 @@ if __name__ == "__main__":
     start=time.monotonic()
 
     prev_reward = 0
-    solved_flag = False
+    last_actions = []
 
     while episode < max_episodes:
         #Environment data
@@ -126,12 +126,14 @@ if __name__ == "__main__":
         rewards = []
         discounted_reward = 0
         expected_reward = []
+        data[f'run_{get_run_number}']['episodes'][episode] = {"total_reward": None,"actions": None, "rewards": None}
 
         #New variables for reset
-        g=(episode%100)==0
+        g=(episode%200)==0
         tmp_observations = []
 
         state = torch.tensor(env.reset(init_pos, g), dtype=torch.float32).view(1, observe_dim).to(d)
+
         while not terminal and step <= max_steps:
             step += 1
 
@@ -166,6 +168,8 @@ if __name__ == "__main__":
                 rewards.append(reward)
 
 
+        data[f'run_{get_run_number}']['episodes'][episode]["total_reward"] = total_reward
+        data[f'run_{get_run_number}']['episodes'][episode]["rewards"] = rewards
         expected_reward.append(discounted_reward/max_steps)
         td3.store_episode(tmp_observations)
 
@@ -178,20 +182,19 @@ if __name__ == "__main__":
         smoothed_total_reward = smoothed_total_reward * 0.9 + total_reward * 0.1
         logger.info(f"Episode {episode} total reward={smoothed_total_reward:.2f}")
 
-        if (np.floor(smoothed_total_reward/10) == np.floor(prev_reward/10)) and not solved_flag:
+        if (np.floor(smoothed_total_reward/10) == np.floor(prev_reward/10)) and smoothed_total_reward > -530:
             reward_fulfilled += 1
-            data[f'run_{get_run_number}']['episodes'][episode] = {"total_reward": None,"actions": None, "rewards": None}
-            data[f'run_{get_run_number}']['episodes'][episode]["total_reward"] = total_reward
-            data[f'run_{get_run_number}']['episodes'][episode]["actions"] = actions
-            data[f'run_{get_run_number}']['episodes'][episode]["rewards"] = rewards
+            last_actions.append(actions)
             if reward_fulfilled >= solved_repeat:
+                for i in range(solved_repeat):
+                    data[f'run_{get_run_number}']['episodes'][episode - solved_repeat + i + 1]["actions"] = last_actions[i]
                 logger.info("Environment solved!")
                 data[f'run_{get_run_number}']['execution_time'] = time.monotonic() - start
                 data[f'run_{get_run_number}']['solved_reward'] = np.floor(smoothed_total_reward/10) * 10 
-                solved_flag = True
+                s = json.dumps(data)
+                open("iiwa_td3.json","w").write(s)
+                exit(0)
         else:
             reward_fulfilled = 0
             prev_reward = smoothed_total_reward
-
-    s = json.dumps(data)
-    open("iiwa_td3.json","w").write(s)
+            last_actions = []
