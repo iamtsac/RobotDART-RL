@@ -11,7 +11,7 @@ from machin.utils.logging import default_logger as logger
 env = Env()
 observe_dim = 3
 action_dim = 1
-max_episodes = 5000
+max_episodes = 2000
 max_steps = 200
 solved_reward = -650
 solved_repeat = 20
@@ -136,8 +136,9 @@ if __name__ == "__main__":
             if reward_fulfilled >= solved_repeat:
                 logger.info("Environment solved!")
                 data[f'run_{get_run_number}']['execution_time'] = time.monotonic() - start
-                s = json.dumps(data)
-                open("pendulum_ppo.json","w").write(s)
-                exit(0)
+
         else:
             reward_fulfilled = 0
+
+    s = json.dumps(data)    
+    open("pendulum_ppo.json","w").write(s)

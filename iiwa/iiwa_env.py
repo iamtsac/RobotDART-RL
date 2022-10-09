@@ -93,15 +93,20 @@ class Env():
 
         return np.r_[self.robot.positions(), self.robot.body_pose(self.eef_link_name).translation()]
 
-    def confirm_env(self, run=1, json_file_path='iiwa_td3.json'):
+    def confirm_env(self, run=1, json_file_path='iiwa_ppo.json'):
         while True:
             try:
+                reward=0
                 data = json.loads(open(json_file_path, "r").read())
                 episode = input(f'Pick episode to run: From {len(data["run_"+str(run)]["episodes"].keys())} available episodes ->  ')
                 initial_positions = data[f'run_{run}']['initial_positions']
+                print(initial_positions)
                 self.reset(initial_positions, True)
                 for i in data[f'run_{run}']['episodes'][str(episode)]['actions']:
-                    self.step(i)
+                    _,re,_,_=self.step([i])
+                    reward+=re
+                print(reward)
+                print(data[f'run_{run}']['episodes'][str(episode)]['total_reward'])
             except KeyboardInterrupt:
                 break
         
