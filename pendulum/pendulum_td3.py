@@ -81,9 +81,7 @@ if __name__ == "__main__":
 
     episode, step, reward_fulfilled = 0, 0, 0
     smoothed_total_reward = 0
-    render = False
 
-    expected_reward = []
     try:
         data = json.loads(open("pendulum_td3.json", "r").read())
         get_run_number = int(list(data.keys())[-1].split('_')[-1]) + 1
@@ -102,7 +100,6 @@ if __name__ == "__main__":
         render = not (episode % 200)
         state = torch.tensor(env.reset(initial_positions=[np.pi], render=render), dtype=torch.float32).view(1, observe_dim)
         tmp_observations = []
-        discounted_reward = 0
         actions = []
         rewards = []
         data[f'run_{get_run_number}']['episodes'][episode] = {"total_reward": None,"actions": None, "rewards": None}
@@ -122,7 +119,6 @@ if __name__ == "__main__":
                 state, reward, terminal, _ = env.step(action.numpy())
                 state = torch.tensor(state, dtype=torch.float32).view(1, observe_dim)
                 total_reward += reward
-                discounted_reward += (discount_factor ** step) * reward
                 tmp_observations.append(
                     {
                         "state": {"state": old_state},
@@ -135,10 +131,10 @@ if __name__ == "__main__":
 
                 actions.append(action.cpu().numpy().item())
                 rewards.append(reward)
+        # Store data
         data[f'run_{get_run_number}']['episodes'][episode]["total_reward"] = total_reward
         data[f'run_{get_run_number}']['episodes'][episode]["actions"] = actions
         data[f'run_{get_run_number}']['episodes'][episode]["rewards"] = rewards
-        expected_reward.append(discounted_reward/max_steps)
         td3.store_episode(tmp_observations)
 
         # update, update more if episode is longer, else less
